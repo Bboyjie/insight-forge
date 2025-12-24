@@ -3,9 +3,22 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ChatInterface } from '@/components/chat/ChatInterface';
 import { Button } from '@/components/ui/button';
-import { getProject, saveProject, generateId, ChatMessage } from '@/lib/storage';
-import { ArrowLeft, CheckCircle, RotateCcw } from 'lucide-react';
+import { getProject, saveProject, generateId, ChatMessage, getLLMSettings } from '@/lib/storage';
+import { ArrowLeft, CheckCircle, RotateCcw, AlertCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
+
+const SOCRATIC_PROMPT = `你是一位启发式导师，采用苏格拉底式教学法。
+
+核心原则：
+1. 不要直接给出答案或长篇大论
+2. 通过提问引导学生思考
+3. 如果学生回答正确，给予肯定并深入探索
+4. 如果学生回答错误，温柔引导，不要直接否定
+5. 使用类比和例子帮助理解
+6. 鼓励学生自己发现答案
+
+你的回复应该简洁，通常是1-3个引导性问题或简短的启发。`;
 
 export default function Learning() {
   const { projectId, chapterId } = useParams<{ projectId: string; chapterId: string }>();
@@ -15,6 +28,7 @@ export default function Learning() {
   const [isLoading, setIsLoading] = useState(false);
 
   const chapter = project?.chapters.find(c => c.id === chapterId);
+  const settings = getLLMSettings();
 
   if (!project || !chapter) {
     return (
@@ -50,26 +64,93 @@ export default function Learning() {
     setProject(updatedProject);
     saveProject(updatedProject);
 
-    // Simulate AI response
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    try {
+      // Check if LLM is configured
+      if (!settings?.baseUrl || !settings?.apiKey || !settings?.modelName) {
+        throw new Error('请先在设置页面配置 LLM API');
+      }
 
-    const assistantMessage: ChatMessage = {
-      id: generateId(),
-      role: 'assistant',
-      content: generateMockResponse(content, chapter.title),
-      timestamp: new Date().toISOString(),
-    };
+      // Build messages for LLM
+      const currentChapter = updatedChapters.find(c => c.id === chapterId);
+      const historyMessages = currentChapter?.messages.map(m => ({
+        role: m.role,
+        content: m.content,
+      })) || [];
 
-    const finalChapters = updatedProject.chapters.map(c =>
-      c.id === chapterId
-        ? { ...c, messages: [...c.messages, assistantMessage] }
-        : c
-    );
+      const systemPrompt = `${SOCRATIC_PROMPT}
 
-    const finalProject = { ...updatedProject, chapters: finalChapters };
-    setProject(finalProject);
-    saveProject(finalProject);
-    setIsLoading(false);
+当前学习内容：
+- 项目：${project.title}
+- 章节：${chapter.title}
+- 章节描述：${chapter.description}
+
+请基于以上上下文进行教学引导。`;
+
+      const { data, error } = await supabase.functions.invoke('chat', {
+        body: {
+          messages: historyMessages,
+          baseUrl: settings.baseUrl,
+          apiKey: settings.apiKey,
+          modelName: settings.modelName,
+          systemPrompt,
+          stream: false,
+        },
+      });
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
+      const assistantContent = data.choices?.[0]?.message?.content || '抱歉，我暂时无法回应。请稍后再试。';
+
+      const assistantMessage: ChatMessage = {
+        id: generateId(),
+        role: 'assistant',
+        content: assistantContent,
+        timestamp: new Date().toISOString(),
+      };
+
+      const finalChapters = updatedProject.chapters.map(c =>
+        c.id === chapterId
+          ? { ...c, messages: [...c.messages, assistantMessage] }
+          : c
+      );
+
+      const finalProject = { ...updatedProject, chapters: finalChapters };
+      setProject(finalProject);
+      saveProject(finalProject);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : '请求失败';
+      toast({
+        title: "AI 回复失败",
+        description: errorMessage,
+        variant: "destructive",
+      });
+
+      // Add error message as assistant response
+      const errorAssistantMessage: ChatMessage = {
+        id: generateId(),
+        role: 'assistant',
+        content: `抱歉，发生了错误：${errorMessage}`,
+        timestamp: new Date().toISOString(),
+      };
+
+      const errorChapters = updatedProject.chapters.map(c =>
+        c.id === chapterId
+          ? { ...c, messages: [...c.messages, errorAssistantMessage] }
+          : c
+      );
+
+      const errorProject = { ...updatedProject, chapters: errorChapters };
+      setProject(errorProject);
+      saveProject(errorProject);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleResetChat = () => {
@@ -134,6 +215,16 @@ export default function Learning() {
           </div>
         </div>
 
+        {/* API Warning */}
+        {!settings && (
+          <div className="bg-destructive/10 border-b border-destructive/20 px-4 py-2 flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-destructive" />
+            <span className="text-sm text-destructive">
+              请先在 <Link to="/settings" className="underline">设置页面</Link> 配置 LLM API
+            </span>
+          </div>
+        )}
+
         {/* Chat Interface */}
         <div className="flex-1 overflow-hidden">
           <ChatInterface
@@ -146,14 +237,4 @@ export default function Learning() {
       </div>
     </AppLayout>
   );
-}
-
-function generateMockResponse(userInput: string, chapterTitle: string): string {
-  const responses = [
-    `这是一个很好的问题！让我们一起来思考：在学习"${chapterTitle}"的过程中，你觉得最核心的概念是什么？为什么这个概念如此重要？`,
-    `我注意到你提到了"${userInput.substring(0, 20)}..."。这让我想到一个问题：你能举一个生活中的例子来说明这个概念吗？`,
-    `你的理解非常到位！让我们更深入一步：如果我们从另一个角度来看这个问题，会得出什么不同的结论？`,
-    `很棒的思考！在继续之前，让我问你：这个概念与我们之前讨论的内容有什么联系？`,
-  ];
-  return responses[Math.floor(Math.random() * responses.length)];
 }

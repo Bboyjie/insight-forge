@@ -3,14 +3,31 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ChatInterface } from '@/components/chat/ChatInterface';
 import { Button } from '@/components/ui/button';
-import { getJournal, saveJournal, generateId, ChatMessage } from '@/lib/storage';
-import { ArrowLeft, PenLine } from 'lucide-react';
+import { getJournal, saveJournal, generateId, ChatMessage, getLLMSettings } from '@/lib/storage';
+import { ArrowLeft, PenLine, AlertCircle } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
+
+const JOURNAL_COMPANION_PROMPT = `你是一个温暖、睿智的生活教练和心灵伙伴。
+
+核心原则：
+1. 仔细阅读和理解用户的日记内容
+2. 提出引发深度思考的问题，帮助用户探索内心
+3. 给予情绪上的支持和共情
+4. 提供关于个人成长的建议
+5. 不要说教，而是以朋友的身份陪伴
+6. 帮助用户发现自己的优点和成长空间
+
+你的回复应该真诚、温暖，既能提供情绪价值，也能引导深度反思。`;
 
 export default function JournalChat() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { toast } = useToast();
   const [journal, setJournal] = useState(() => getJournal(id!));
   const [isLoading, setIsLoading] = useState(false);
+
+  const settings = getLLMSettings();
 
   if (!journal) {
     return (
@@ -42,23 +59,87 @@ export default function JournalChat() {
     setJournal(updatedJournal);
     saveJournal(updatedJournal);
 
-    // Simulate AI response
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    try {
+      // Check if LLM is configured
+      if (!settings?.baseUrl || !settings?.apiKey || !settings?.modelName) {
+        throw new Error('请先在设置页面配置 LLM API');
+      }
 
-    const assistantMessage: ChatMessage = {
-      id: generateId(),
-      role: 'assistant',
-      content: generateJournalResponse(content, journal.content),
-      timestamp: new Date().toISOString(),
-    };
+      // Build messages for LLM
+      const historyMessages = updatedJournal.messages.map(m => ({
+        role: m.role,
+        content: m.content,
+      }));
 
-    const finalJournal = {
-      ...updatedJournal,
-      messages: [...updatedJournal.messages, assistantMessage],
-    };
-    setJournal(finalJournal);
-    saveJournal(finalJournal);
-    setIsLoading(false);
+      const systemPrompt = `${JOURNAL_COMPANION_PROMPT}
+
+用户的日记内容：
+---
+标题：${journal.title || '无标题'}
+内容：${journal.content}
+---
+
+请基于以上日记内容与用户进行对话。`;
+
+      const { data, error } = await supabase.functions.invoke('chat', {
+        body: {
+          messages: historyMessages,
+          baseUrl: settings.baseUrl,
+          apiKey: settings.apiKey,
+          modelName: settings.modelName,
+          systemPrompt,
+          stream: false,
+        },
+      });
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
+      const assistantContent = data.choices?.[0]?.message?.content || '抱歉，我暂时无法回应。请稍后再试。';
+
+      const assistantMessage: ChatMessage = {
+        id: generateId(),
+        role: 'assistant',
+        content: assistantContent,
+        timestamp: new Date().toISOString(),
+      };
+
+      const finalJournal = {
+        ...updatedJournal,
+        messages: [...updatedJournal.messages, assistantMessage],
+      };
+      setJournal(finalJournal);
+      saveJournal(finalJournal);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : '请求失败';
+      toast({
+        title: "AI 回复失败",
+        description: errorMessage,
+        variant: "destructive",
+      });
+
+      // Add error message as assistant response
+      const errorAssistantMessage: ChatMessage = {
+        id: generateId(),
+        role: 'assistant',
+        content: `抱歉，发生了错误：${errorMessage}`,
+        timestamp: new Date().toISOString(),
+      };
+
+      const errorJournal = {
+        ...updatedJournal,
+        messages: [...updatedJournal.messages, errorAssistantMessage],
+      };
+      setJournal(errorJournal);
+      saveJournal(errorJournal);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -94,6 +175,16 @@ export default function JournalChat() {
           </Button>
         </div>
 
+        {/* API Warning */}
+        {!settings && (
+          <div className="bg-destructive/10 border-b border-destructive/20 px-4 py-2 flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-destructive" />
+            <span className="text-sm text-destructive">
+              请先在 <Link to="/settings" className="underline">设置页面</Link> 配置 LLM API
+            </span>
+          </div>
+        )}
+
         {/* Journal Preview */}
         <div className="bg-muted/30 border-b border-border px-4 py-3">
           <p className="text-sm text-muted-foreground line-clamp-2">
@@ -113,14 +204,4 @@ export default function JournalChat() {
       </div>
     </AppLayout>
   );
-}
-
-function generateJournalResponse(userInput: string, journalContent: string): string {
-  const responses = [
-    `从你的日记中，我感受到了你对这件事的深入思考。你提到的这个点让我很好奇：是什么让你产生了这样的感受？`,
-    `这是一个很有意义的反思。让我们更深入地探讨一下：如果换一个角度来看这件事，你会发现什么不同？`,
-    `你的坦诚让我很感动。在这个过程中，你觉得自己学到了什么？这对你未来会有什么影响？`,
-    `我注意到你日记中提到的这一点。你觉得这个经历对你的成长有什么意义？`,
-  ];
-  return responses[Math.floor(Math.random() * responses.length)];
 }

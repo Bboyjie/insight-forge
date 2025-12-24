@@ -4,12 +4,15 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { getLLMSettings, saveLLMSettings, LLMSettings } from '@/lib/storage';
-import { Save, Eye, EyeOff, CheckCircle, Server, Key, Cpu } from 'lucide-react';
+import { Save, Eye, EyeOff, CheckCircle, Server, Key, Cpu, Loader2, Zap, AlertCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
 
 export default function Settings() {
   const { toast } = useToast();
   const [showApiKey, setShowApiKey] = useState(false);
+  const [isTesting, setIsTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [settings, setSettings] = useState<LLMSettings>({
     baseUrl: '',
     apiKey: '',
@@ -29,6 +32,62 @@ export default function Settings() {
       title: "设置已保存",
       description: "API 配置已更新",
     });
+  };
+
+  const handleTestConnection = async () => {
+    if (!settings.baseUrl || !settings.apiKey || !settings.modelName) {
+      toast({
+        title: "请填写完整配置",
+        description: "Base URL、API Key 和 Model Name 都是必填项",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsTesting(true);
+    setTestResult(null);
+
+    try {
+      const { data, error } = await supabase.functions.invoke('test-connection', {
+        body: {
+          baseUrl: settings.baseUrl,
+          apiKey: settings.apiKey,
+          modelName: settings.modelName,
+        },
+      });
+
+      if (error) {
+        setTestResult({ success: false, message: error.message });
+        toast({
+          title: "连接测试失败",
+          description: error.message,
+          variant: "destructive",
+        });
+      } else if (data.success) {
+        setTestResult({ success: true, message: data.message });
+        toast({
+          title: "连接成功",
+          description: `模型 ${data.model} 已准备就绪`,
+        });
+      } else {
+        setTestResult({ success: false, message: data.error });
+        toast({
+          title: "连接失败",
+          description: data.error,
+          variant: "destructive",
+        });
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '未知错误';
+      setTestResult({ success: false, message });
+      toast({
+        title: "测试失败",
+        description: message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsTesting(false);
+    }
   };
 
   const isConfigured = settings.baseUrl && settings.apiKey && settings.modelName;
@@ -69,7 +128,10 @@ export default function Settings() {
               <Input
                 id="baseUrl"
                 value={settings.baseUrl}
-                onChange={(e) => setSettings({ ...settings, baseUrl: e.target.value })}
+                onChange={(e) => {
+                  setSettings({ ...settings, baseUrl: e.target.value });
+                  setTestResult(null);
+                }}
                 placeholder="https://api.openai.com/v1"
               />
               <p className="text-xs text-muted-foreground">
@@ -87,7 +149,10 @@ export default function Settings() {
                   id="apiKey"
                   type={showApiKey ? 'text' : 'password'}
                   value={settings.apiKey}
-                  onChange={(e) => setSettings({ ...settings, apiKey: e.target.value })}
+                  onChange={(e) => {
+                    setSettings({ ...settings, apiKey: e.target.value });
+                    setTestResult(null);
+                  }}
                   placeholder="sk-..."
                   className="pr-10"
                 />
@@ -116,7 +181,10 @@ export default function Settings() {
               <Input
                 id="modelName"
                 value={settings.modelName}
-                onChange={(e) => setSettings({ ...settings, modelName: e.target.value })}
+                onChange={(e) => {
+                  setSettings({ ...settings, modelName: e.target.value });
+                  setTestResult(null);
+                }}
                 placeholder="gpt-4o / claude-3-5-sonnet"
               />
               <p className="text-xs text-muted-foreground">
@@ -124,14 +192,50 @@ export default function Settings() {
               </p>
             </div>
 
-            <Button 
-              onClick={handleSave} 
-              className="w-full"
-              disabled={!settings.baseUrl || !settings.apiKey || !settings.modelName}
-            >
-              <Save className="w-4 h-4 mr-2" />
-              保存设置
-            </Button>
+            {/* Test Result */}
+            {testResult && (
+              <div className={`flex items-center gap-2 p-3 rounded ${
+                testResult.success 
+                  ? 'bg-primary/10 text-primary' 
+                  : 'bg-destructive/10 text-destructive'
+              }`}>
+                {testResult.success ? (
+                  <CheckCircle className="w-4 h-4" />
+                ) : (
+                  <AlertCircle className="w-4 h-4" />
+                )}
+                <span className="text-sm">{testResult.message}</span>
+              </div>
+            )}
+
+            <div className="flex gap-3">
+              <Button 
+                variant="outline"
+                onClick={handleTestConnection}
+                disabled={!isConfigured || isTesting}
+                className="flex-1"
+              >
+                {isTesting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    测试中...
+                  </>
+                ) : (
+                  <>
+                    <Zap className="w-4 h-4 mr-2" />
+                    测试连接
+                  </>
+                )}
+              </Button>
+              <Button 
+                onClick={handleSave} 
+                className="flex-1"
+                disabled={!isConfigured}
+              >
+                <Save className="w-4 h-4 mr-2" />
+                保存设置
+              </Button>
+            </div>
           </div>
         </div>
 
