@@ -7,6 +7,29 @@ import { saveProject, generateId, StudyProject, Chapter, getLLMSettings } from '
 import { ArrowLeft, AlertCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Link } from 'react-router-dom';
+import { supabase } from '@/integrations/supabase/client';
+
+const PLANNER_PROMPT = `你是一个专业的课程设计师和学习规划专家。
+
+请根据用户提供的信息，生成一个结构化的学习大纲。
+
+要求：
+1. 大纲应该包含 5-8 个章节
+2. 每个章节都有明确的标题和学习目标描述
+3. 章节安排应该由浅入深，循序渐进
+4. 考虑用户的当前水平和可用时间
+
+请以 JSON 格式返回，格式如下：
+{
+  "chapters": [
+    {
+      "title": "第1章：章节标题",
+      "description": "本章节的学习目标和主要内容描述"
+    }
+  ]
+}
+
+只返回 JSON，不要有其他内容。`;
 
 export default function CreateProject() {
   const navigate = useNavigate();
@@ -14,8 +37,69 @@ export default function CreateProject() {
   const [isLoading, setIsLoading] = useState(false);
   const settings = getLLMSettings();
 
+  const generateChaptersWithAI = async (data: ProjectFormData): Promise<Chapter[]> => {
+    if (!settings?.baseUrl || !settings?.apiKey || !settings?.modelName) {
+      throw new Error('请先配置 LLM API');
+    }
+
+    const levelNames = ['零基础', '入门', '进阶', '专家'];
+    const userPrompt = `请为以下学习主题生成学习大纲：
+
+主题：${data.topic}
+学习目的：${data.goal}
+当前水平：${levelNames[data.level - 1]}
+每日学习时间：${data.timePerDay} 分钟
+学习周期：${data.durationDays} 天`;
+
+    const { data: response, error } = await supabase.functions.invoke('chat', {
+      body: {
+        messages: [{ role: 'user', content: userPrompt }],
+        baseUrl: settings.baseUrl,
+        apiKey: settings.apiKey,
+        modelName: settings.modelName,
+        systemPrompt: PLANNER_PROMPT,
+        stream: false,
+      },
+    });
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    if (response.error) {
+      throw new Error(response.error);
+    }
+
+    const content = response.choices?.[0]?.message?.content || '';
+    
+    // Try to parse JSON from the response
+    try {
+      // Extract JSON from the response (in case there's extra text)
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        throw new Error('无法解析 AI 返回的内容');
+      }
+
+      const parsed = JSON.parse(jsonMatch[0]);
+      
+      if (!parsed.chapters || !Array.isArray(parsed.chapters)) {
+        throw new Error('AI 返回格式错误');
+      }
+
+      return parsed.chapters.map((ch: { title: string; description: string }, i: number) => ({
+        id: generateId(),
+        title: ch.title || `第${i + 1}章`,
+        description: ch.description || '',
+        completed: false,
+        messages: [],
+      }));
+    } catch (parseError) {
+      console.error('Failed to parse AI response:', content);
+      throw new Error('无法解析学习大纲，请重试');
+    }
+  };
+
   const generateMockChapters = (topic: string): Chapter[] => {
-    // Mock chapters for demo - in production this would come from LLM
     const baseChapters = [
       { title: '概述与入门', description: `了解${topic}的基本概念和历史背景` },
       { title: '核心概念', description: `深入理解${topic}的核心理论和原则` },
@@ -36,10 +120,30 @@ export default function CreateProject() {
   const handleSubmit = async (data: ProjectFormData) => {
     setIsLoading(true);
 
-    // Simulate API call delay
-    await new Promise(resolve => setTimeout(resolve, 1500));
-
     try {
+      let chapters: Chapter[];
+
+      // Try to generate with AI, fallback to mock if not configured
+      if (settings?.baseUrl && settings?.apiKey && settings?.modelName) {
+        try {
+          chapters = await generateChaptersWithAI(data);
+          toast({
+            title: "AI 已生成学习大纲",
+            description: `共 ${chapters.length} 个章节`,
+          });
+        } catch (aiError) {
+          console.error('AI generation failed:', aiError);
+          toast({
+            title: "AI 生成失败，使用默认模板",
+            description: aiError instanceof Error ? aiError.message : '请检查 API 配置',
+            variant: "destructive",
+          });
+          chapters = generateMockChapters(data.topic);
+        }
+      } else {
+        chapters = generateMockChapters(data.topic);
+      }
+
       const project: StudyProject = {
         id: generateId(),
         title: data.topic.length > 20 ? data.topic.substring(0, 20) + '...' : data.topic,
@@ -48,7 +152,7 @@ export default function CreateProject() {
         level: data.level,
         timePerDay: data.timePerDay,
         durationDays: data.durationDays,
-        chapters: generateMockChapters(data.topic),
+        chapters,
         createdAt: new Date().toISOString(),
         progress: 0,
       };
@@ -56,15 +160,15 @@ export default function CreateProject() {
       saveProject(project);
 
       toast({
-        title: "学习计划已生成",
+        title: "学习计划已创建",
         description: `共 ${project.chapters.length} 个章节，开始你的学习之旅吧！`,
       });
 
       navigate(`/projects/${project.id}`);
     } catch (error) {
       toast({
-        title: "生成失败",
-        description: "请检查网络连接或API设置后重试",
+        title: "创建失败",
+        description: error instanceof Error ? error.message : "请检查网络连接后重试",
         variant: "destructive",
       });
     } finally {
@@ -97,7 +201,7 @@ export default function CreateProject() {
             <div>
               <p className="text-sm font-medium text-destructive">未配置 AI 接口</p>
               <p className="text-sm text-muted-foreground mt-1">
-                请先在 <Link to="/settings" className="underline text-primary">设置页面</Link> 配置你的 LLM API 接口
+                请先在 <Link to="/settings" className="underline text-primary">设置页面</Link> 配置你的 LLM API 接口，否则将使用默认模板
               </p>
             </div>
           </div>
