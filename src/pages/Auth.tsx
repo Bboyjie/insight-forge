@@ -14,25 +14,27 @@ export default function Auth() {
   const [isLoading, setIsLoading] = useState(false);
   const [isProcessingCallback, setIsProcessingCallback] = useState(false);
 
-  // Check if user is already logged in
-  useEffect(() => {
-    const user = getAuthUser();
-    if (user) {
-      navigate('/dashboard');
-    }
-  }, [navigate]);
-
-  // Handle OAuth callback
+  // Handle OAuth callback and check login status
   useEffect(() => {
     const code = searchParams.get('code');
+    
+    // If there's a code parameter and we're not already processing, handle the OAuth callback
     if (code && !isProcessingCallback) {
+      setIsProcessingCallback(true);
       handleOAuthCallback(code);
+      return;
     }
-  }, [searchParams]);
+    
+    // Only check for existing login if we're not processing a callback
+    if (!code && !isProcessingCallback) {
+      const user = getAuthUser();
+      if (user) {
+        navigate('/dashboard');
+      }
+    }
+  }, [searchParams, isProcessingCallback, navigate]);
 
   const handleOAuthCallback = async (code: string) => {
-    setIsProcessingCallback(true);
-    
     try {
       const redirectUri = `${window.location.origin}/auth`;
       
