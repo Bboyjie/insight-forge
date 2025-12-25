@@ -14,17 +14,35 @@ const PLANNER_PROMPT = `你是一个专业的课程设计师和学习规划专�
 请根据用户提供的信息，生成一个结构化的学习大纲。
 
 要求：
-1. 大纲应该包含 5-8 个章节
-2. 每个章节都有明确的标题和学习目标描述
-3. 章节安排应该由浅入深，循序渐进
-4. 考虑用户的当前水平和可用时间
+1. 大纲应该包含 4-6 个主要章节
+2. 每个章节都有明确的标题、描述和 2-3 个具体的学习目标
+3. 每个章节可以包含 2-4 个子章节，子章节也需要有自己的学习目标
+4. 生成整个学习项目的总体学习目标（3-5个）
+5. 章节安排应该由浅入深，循序渐进
+6. 学习目标应该是具体的、可衡量的
+7. 考虑用户的当前水平和可用时间
 
 请以 JSON 格式返回，格式如下：
 {
+  "learningObjectives": [
+    "总体学习目标1：...",
+    "总体学习目标2：..."
+  ],
   "chapters": [
     {
       "title": "第1章：章节标题",
-      "description": "本章节的学习目标和主要内容描述"
+      "description": "本章节的主要内容描述",
+      "objectives": [
+        "掌握...",
+        "理解..."
+      ],
+      "subChapters": [
+        {
+          "title": "1.1 子章节标题",
+          "description": "子章节内容描述",
+          "objectives": ["学会..."]
+        }
+      ]
     }
   ]
 }
@@ -37,7 +55,7 @@ export default function CreateProject() {
   const [isLoading, setIsLoading] = useState(false);
   const settings = getLLMSettings();
 
-  const generateChaptersWithAI = async (data: ProjectFormData): Promise<Chapter[]> => {
+  const generateChaptersWithAI = async (data: ProjectFormData): Promise<{ chapters: Chapter[], learningObjectives: string[] }> => {
     if (!settings?.baseUrl || !settings?.apiKey || !settings?.modelName) {
       throw new Error('请先配置 LLM API');
     }
@@ -47,7 +65,7 @@ export default function CreateProject() {
 
 主题：${data.topic}
 学习目的：${data.goal}
-当前水平：${levelNames[data.level - 1]}
+当前水平：${levelNames[data.level]}
 每日学习时间：${data.timePerDay} 分钟
 学习周期：${data.durationDays} 天`;
 
@@ -86,50 +104,119 @@ export default function CreateProject() {
         throw new Error('AI 返回格式错误');
       }
 
-      return parsed.chapters.map((ch: { title: string; description: string }, i: number) => ({
+      const chapters = parsed.chapters.map((ch: any, i: number) => ({
         id: generateId(),
         title: ch.title || `第${i + 1}章`,
         description: ch.description || '',
+        objectives: ch.objectives || [],
+        subChapters: ch.subChapters?.map((sub: any) => ({
+          id: generateId(),
+          title: sub.title || '',
+          description: sub.description || '',
+          objectives: sub.objectives || [],
+          completed: false,
+        })) || [],
         completed: false,
         messages: [],
       }));
+
+      return {
+        chapters,
+        learningObjectives: parsed.learningObjectives || [],
+      };
     } catch (parseError) {
       console.error('Failed to parse AI response:', content);
       throw new Error('无法解析学习大纲，请重试');
     }
   };
 
-  const generateMockChapters = (topic: string): Chapter[] => {
-    const baseChapters = [
-      { title: '概述与入门', description: `了解${topic}的基本概念和历史背景` },
-      { title: '核心概念', description: `深入理解${topic}的核心理论和原则` },
-      { title: '实践应用', description: `将${topic}的知识应用到实际场景` },
-      { title: '进阶探索', description: `探索${topic}的高级主题和前沿发展` },
-      { title: '总结与反思', description: `回顾学习成果，巩固知识体系` },
+  const generateMockChapters = (topic: string): { chapters: Chapter[], learningObjectives: string[] } => {
+    const learningObjectives = [
+      `理解${topic}的核心概念和基本原理`,
+      `掌握${topic}的关键技能和方法`,
+      `能够将${topic}知识应用到实际场景中`,
     ];
 
-    return baseChapters.map((ch, i) => ({
+    const baseChapters = [
+      { 
+        title: '概述与入门', 
+        description: `了解${topic}的基本概念和历史背景`,
+        objectives: [`了解${topic}的定义和范围`, `理解${topic}的历史发展`],
+        subChapters: [
+          { title: '基本概念', description: '核心术语和定义', objectives: ['掌握基本术语'] },
+          { title: '发展历史', description: '历史演变过程', objectives: ['了解发展脉络'] },
+        ],
+      },
+      { 
+        title: '核心概念', 
+        description: `深入理解${topic}的核心理论和原则`,
+        objectives: [`掌握${topic}的核心理论`, `理解关键原则`],
+        subChapters: [
+          { title: '理论框架', description: '主要理论体系', objectives: ['理解理论框架'] },
+          { title: '关键原则', description: '核心原则详解', objectives: ['掌握关键原则'] },
+        ],
+      },
+      { 
+        title: '实践应用', 
+        description: `将${topic}的知识应用到实际场景`,
+        objectives: [`能够应用所学知识`, `解决实际问题`],
+        subChapters: [
+          { title: '案例分析', description: '典型案例研究', objectives: ['分析典型案例'] },
+          { title: '实践练习', description: '动手实践', objectives: ['完成实践项目'] },
+        ],
+      },
+      { 
+        title: '进阶探索', 
+        description: `探索${topic}的高级主题和前沿发展`,
+        objectives: [`了解前沿发展`, `深入研究高级主题`],
+        subChapters: [
+          { title: '高级主题', description: '深入探讨', objectives: ['掌握高级概念'] },
+          { title: '前沿发展', description: '最新进展', objectives: ['了解发展趋势'] },
+        ],
+      },
+      { 
+        title: '总结与反思', 
+        description: `回顾学习成果，巩固知识体系`,
+        objectives: [`总结所学内容`, `建立知识体系`],
+        subChapters: [
+          { title: '知识回顾', description: '系统复习', objectives: ['巩固知识点'] },
+          { title: '自我评估', description: '学习效果评估', objectives: ['评估学习成果'] },
+        ],
+      },
+    ];
+
+    const chapters = baseChapters.map((ch, i) => ({
       id: generateId(),
       title: `第${i + 1}章：${ch.title}`,
       description: ch.description,
+      objectives: ch.objectives,
+      subChapters: ch.subChapters.map((sub) => ({
+        id: generateId(),
+        title: sub.title,
+        description: sub.description,
+        objectives: sub.objectives,
+        completed: false,
+      })),
       completed: false,
       messages: [],
     }));
+
+    return { chapters, learningObjectives };
   };
 
   const handleSubmit = async (data: ProjectFormData) => {
     setIsLoading(true);
 
     try {
-      let chapters: Chapter[];
+      let result: { chapters: Chapter[], learningObjectives: string[] };
 
       // Try to generate with AI, fallback to mock if not configured
       if (settings?.baseUrl && settings?.apiKey && settings?.modelName) {
         try {
-          chapters = await generateChaptersWithAI(data);
+          result = await generateChaptersWithAI(data);
           toast({
             title: "AI 已生成学习大纲",
-            description: `共 ${chapters.length} 个章节`,
+            description: `共 ${result.chapters.length} 个章节`,
           });
         } catch (aiError) {
           console.error('AI generation failed:', aiError);
@@ -138,10 +225,10 @@ export default function CreateProject() {
             description: aiError instanceof Error ? aiError.message : '请检查 API 配置',
             variant: "destructive",
           });
-          chapters = generateMockChapters(data.topic);
+          result = generateMockChapters(data.topic);
         }
       } else {
-        chapters = generateMockChapters(data.topic);
+        result = generateMockChapters(data.topic);
       }
 
       const project: StudyProject = {
@@ -152,7 +239,8 @@ export default function CreateProject() {
         level: data.level,
         timePerDay: data.timePerDay,
         durationDays: data.durationDays,
-        chapters,
+        chapters: result.chapters,
+        learningObjectives: result.learningObjectives,
         createdAt: new Date().toISOString(),
         progress: 0,
       };

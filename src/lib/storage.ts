@@ -15,6 +15,7 @@ export interface StudyProject {
   timePerDay: number;
   durationDays: number;
   chapters: Chapter[];
+  learningObjectives: string[];
   createdAt: string;
   progress: number;
 }
@@ -23,8 +24,18 @@ export interface Chapter {
   id: string;
   title: string;
   description: string;
+  objectives: string[];
+  subChapters?: SubChapter[];
   completed: boolean;
   messages: ChatMessage[];
+}
+
+export interface SubChapter {
+  id: string;
+  title: string;
+  description: string;
+  objectives: string[];
+  completed: boolean;
 }
 
 export interface ChatMessage {
@@ -55,12 +66,45 @@ export interface UserProfile {
   completedChapters: number;
 }
 
+export interface AuthUser {
+  id: string;
+  username: string;
+  name?: string;
+  avatar_url?: string;
+  trust_level?: number;
+}
+
 const STORAGE_KEYS = {
   LLM_SETTINGS: 'yinxue_llm_settings',
   PROJECTS: 'yinxue_projects',
   JOURNALS: 'yinxue_journals',
   USER_PROFILE: 'yinxue_profile',
+  AUTH_USER: 'yinxue_auth_user',
+  AUTH_TOKEN: 'yinxue_auth_token',
 };
+
+// Auth
+export function getAuthUser(): AuthUser | null {
+  const data = localStorage.getItem(STORAGE_KEYS.AUTH_USER);
+  return data ? JSON.parse(data) : null;
+}
+
+export function saveAuthUser(user: AuthUser): void {
+  localStorage.setItem(STORAGE_KEYS.AUTH_USER, JSON.stringify(user));
+}
+
+export function getAuthToken(): string | null {
+  return localStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
+}
+
+export function saveAuthToken(token: string): void {
+  localStorage.setItem(STORAGE_KEYS.AUTH_TOKEN, token);
+}
+
+export function clearAuth(): void {
+  localStorage.removeItem(STORAGE_KEYS.AUTH_USER);
+  localStorage.removeItem(STORAGE_KEYS.AUTH_TOKEN);
+}
 
 // LLM Settings
 export function getLLMSettings(): LLMSettings | null {
