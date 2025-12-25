@@ -5,7 +5,7 @@ import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { Textarea } from '@/components/ui/textarea';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Loader2, Sparkles } from 'lucide-react';
+import { Loader2, Sparkles, Plus, X } from 'lucide-react';
 
 interface CreateProjectFormProps {
   onSubmit: (data: ProjectFormData) => void;
@@ -15,6 +15,7 @@ interface CreateProjectFormProps {
 export interface ProjectFormData {
   topic: string;
   goal: string;
+  customGoal?: string;
   level: number;
   timePerDay: number;
   durationDays: number;
@@ -25,6 +26,7 @@ const goalOptions = [
   { value: '兴趣了解', label: '兴趣了解' },
   { value: '考试备考', label: '考试备考' },
   { value: '技能提升', label: '技能提升' },
+  { value: 'custom', label: '自定义' },
 ];
 
 const levelLabels = ['零基础', '入门', '进阶', '专家'];
@@ -32,20 +34,25 @@ const levelLabels = ['零基础', '入门', '进阶', '专家'];
 export function CreateProjectForm({ onSubmit, isLoading }: CreateProjectFormProps) {
   const [topic, setTopic] = useState('');
   const [goal, setGoal] = useState('兴趣了解');
+  const [customGoal, setCustomGoal] = useState('');
   const [level, setLevel] = useState([1]);
   const [timePerDay, setTimePerDay] = useState([30]);
   const [durationDays, setDurationDays] = useState([30]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const finalGoal = goal === 'custom' ? customGoal : goal;
     onSubmit({
       topic,
-      goal,
+      goal: finalGoal,
+      customGoal: goal === 'custom' ? customGoal : undefined,
       level: level[0],
       timePerDay: timePerDay[0],
       durationDays: durationDays[0],
     });
   };
+
+  const isCustomGoal = goal === 'custom';
 
   return (
     <form onSubmit={handleSubmit} className="space-y-8">
@@ -71,6 +78,17 @@ export function CreateProjectForm({ onSubmit, isLoading }: CreateProjectFormProp
             </div>
           ))}
         </RadioGroup>
+        
+        {isCustomGoal && (
+          <div className="mt-3">
+            <Input
+              placeholder="请输入你的学习目的..."
+              value={customGoal}
+              onChange={(e) => setCustomGoal(e.target.value)}
+              required={isCustomGoal}
+            />
+          </div>
+        )}
       </div>
 
       <div className="space-y-3">
@@ -128,7 +146,7 @@ export function CreateProjectForm({ onSubmit, isLoading }: CreateProjectFormProp
       <Button 
         type="submit" 
         className="w-full h-12 text-base"
-        disabled={!topic.trim() || isLoading}
+        disabled={!topic.trim() || (isCustomGoal && !customGoal.trim()) || isLoading}
       >
         {isLoading ? (
           <>

@@ -4,7 +4,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { getProject, saveProject, deleteProject } from '@/lib/storage';
-import { ArrowLeft, Play, CheckCircle, Circle, Trash2, Clock, Target } from 'lucide-react';
+import { ArrowLeft, Play, CheckCircle, Circle, Trash2, Clock, Target, ChevronDown, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   AlertDialog,
@@ -24,6 +24,7 @@ export default function ProjectDetail() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [project, setProject] = useState(() => getProject(id!));
+  const [expandedChapters, setExpandedChapters] = useState<Set<string>>(new Set());
 
   if (!project) {
     return (
@@ -61,6 +62,18 @@ export default function ProjectDetail() {
     };
     setProject(updatedProject);
     saveProject(updatedProject);
+  };
+
+  const toggleChapterExpand = (chapterId: string) => {
+    setExpandedChapters(prev => {
+      const next = new Set(prev);
+      if (next.has(chapterId)) {
+        next.delete(chapterId);
+      } else {
+        next.add(chapterId);
+      }
+      return next;
+    });
   };
 
   return (
@@ -115,6 +128,24 @@ export default function ProjectDetail() {
             </div>
           </div>
 
+          {/* Learning Objectives */}
+          {project.learningObjectives && project.learningObjectives.length > 0 && (
+            <div className="mt-6 p-4 bg-muted/30 border border-border rounded-lg">
+              <h3 className="font-medium text-foreground flex items-center gap-2 mb-3">
+                <Target className="w-4 h-4 text-primary" />
+                学习目标
+              </h3>
+              <ul className="space-y-2">
+                {project.learningObjectives.map((objective, i) => (
+                  <li key={i} className="text-sm text-muted-foreground flex items-start gap-2">
+                    <span className="text-primary font-medium">{i + 1}.</span>
+                    <span>{objective}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           <div className="mt-6">
             <div className="flex items-center justify-between text-sm mb-2">
               <span className="text-muted-foreground">整体进度</span>
@@ -129,49 +160,123 @@ export default function ProjectDetail() {
         {/* Chapters List */}
         <div className="space-y-3">
           <h2 className="text-lg font-semibold text-foreground mb-4">学习章节</h2>
-          {project.chapters.map((chapter, index) => (
-            <div
-              key={chapter.id}
-              className={cn(
-                "bg-card border border-border p-4 flex items-center gap-4 group",
-                chapter.completed && "opacity-60"
-              )}
-            >
-              <button
-                onClick={() => toggleChapterComplete(chapter.id)}
-                className="flex-shrink-0"
-              >
-                {chapter.completed ? (
-                  <CheckCircle className="w-6 h-6 text-primary" />
-                ) : (
-                  <Circle className="w-6 h-6 text-muted-foreground hover:text-primary transition-colors" />
+          {project.chapters.map((chapter, index) => {
+            const isExpanded = expandedChapters.has(chapter.id);
+            const hasSubChapters = chapter.subChapters && chapter.subChapters.length > 0;
+            const hasObjectives = chapter.objectives && chapter.objectives.length > 0;
+
+            return (
+              <div
+                key={chapter.id}
+                className={cn(
+                  "bg-card border border-border",
+                  chapter.completed && "opacity-60"
                 )}
-              </button>
+              >
+                {/* Main Chapter Row */}
+                <div className="p-4 flex items-center gap-4 group">
+                  <button
+                    onClick={() => toggleChapterComplete(chapter.id)}
+                    className="flex-shrink-0"
+                  >
+                    {chapter.completed ? (
+                      <CheckCircle className="w-6 h-6 text-primary" />
+                    ) : (
+                      <Circle className="w-6 h-6 text-muted-foreground hover:text-primary transition-colors" />
+                    )}
+                  </button>
 
-              <div className="flex-1 min-w-0">
-                <h3 className={cn(
-                  "font-medium text-foreground",
-                  chapter.completed && "line-through"
-                )}>
-                  {chapter.title}
-                </h3>
-                <p className="text-sm text-muted-foreground truncate">
-                  {chapter.description}
-                </p>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      {(hasSubChapters || hasObjectives) && (
+                        <button 
+                          onClick={() => toggleChapterExpand(chapter.id)}
+                          className="text-muted-foreground hover:text-foreground"
+                        >
+                          {isExpanded ? (
+                            <ChevronDown className="w-4 h-4" />
+                          ) : (
+                            <ChevronRight className="w-4 h-4" />
+                          )}
+                        </button>
+                      )}
+                      <h3 className={cn(
+                        "font-medium text-foreground",
+                        chapter.completed && "line-through"
+                      )}>
+                        {chapter.title}
+                      </h3>
+                    </div>
+                    <p className="text-sm text-muted-foreground truncate mt-1">
+                      {chapter.description}
+                    </p>
+                  </div>
+
+                  <Link to={`/projects/${project.id}/learn/${chapter.id}`}>
+                    <Button 
+                      variant="ghost" 
+                      size="sm"
+                      className="opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <Play className="w-4 h-4 mr-1" />
+                      学习
+                    </Button>
+                  </Link>
+                </div>
+
+                {/* Expanded Content */}
+                {isExpanded && (
+                  <div className="border-t border-border px-4 py-3 bg-muted/20">
+                    {/* Chapter Objectives */}
+                    {hasObjectives && (
+                      <div className="mb-4">
+                        <h4 className="text-sm font-medium text-foreground mb-2 flex items-center gap-2">
+                          <Target className="w-3 h-3 text-primary" />
+                          章节目标
+                        </h4>
+                        <ul className="space-y-1 ml-5">
+                          {chapter.objectives!.map((obj, i) => (
+                            <li key={i} className="text-sm text-muted-foreground">• {obj}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* Sub Chapters */}
+                    {hasSubChapters && (
+                      <div>
+                        <h4 className="text-sm font-medium text-foreground mb-2">子章节</h4>
+                        <div className="space-y-2 ml-5">
+                          {chapter.subChapters!.map((sub) => (
+                            <div key={sub.id} className="text-sm">
+                              <div className="flex items-center gap-2">
+                                {sub.completed ? (
+                                  <CheckCircle className="w-4 h-4 text-primary" />
+                                ) : (
+                                  <Circle className="w-4 h-4 text-muted-foreground" />
+                                )}
+                                <span className={cn(
+                                  "text-foreground",
+                                  sub.completed && "line-through opacity-60"
+                                )}>
+                                  {sub.title}
+                                </span>
+                              </div>
+                              {sub.objectives && sub.objectives.length > 0 && (
+                                <div className="ml-6 mt-1 text-xs text-muted-foreground">
+                                  目标: {sub.objectives.join(', ')}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-
-              <Link to={`/projects/${project.id}/learn/${chapter.id}`}>
-                <Button 
-                  variant="ghost" 
-                  size="sm"
-                  className="opacity-0 group-hover:opacity-100 transition-opacity"
-                >
-                  <Play className="w-4 h-4 mr-1" />
-                  学习
-                </Button>
-              </Link>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </AppLayout>

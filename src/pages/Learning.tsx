@@ -3,22 +3,26 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ChatInterface } from '@/components/chat/ChatInterface';
 import { Button } from '@/components/ui/button';
-import { getProject, saveProject, generateId, ChatMessage, getLLMSettings } from '@/lib/storage';
-import { ArrowLeft, CheckCircle, RotateCcw, AlertCircle } from 'lucide-react';
+import { getProject, saveProject, generateId, ChatMessage, getLLMSettings, Chapter } from '@/lib/storage';
+import { ArrowLeft, CheckCircle, RotateCcw, AlertCircle, Target, ChevronDown, ChevronRight } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
+import { cn } from '@/lib/utils';
 
-const SOCRATIC_PROMPT = `你是一位启发式导师，采用苏格拉底式教学法。
+const SOCRATIC_PROMPT = `你是一位启发式导师，采用苏格拉底式教学法，以学习目标为导向进行教学。
 
 核心原则：
-1. 不要直接给出答案或长篇大论
-2. 通过提问引导学生思考
-3. 如果学生回答正确，给予肯定并深入探索
-4. 如果学生回答错误，温柔引导，不要直接否定
-5. 使用类比和例子帮助理解
-6. 鼓励学生自己发现答案
+1. 以学习目标为导向，确保学生朝着目标前进
+2. 不要直接给出答案或长篇大论
+3. 通过提问引导学生思考
+4. 如果学生回答正确，给予肯定并深入探索
+5. 如果学生回答错误，温柔引导，不要直接否定
+6. 使用类比和例子帮助理解
+7. 鼓励学生自己发现答案
+8. 定期检查学生对学习目标的掌握程度
+9. 在适当时候总结学生已经达成的目标
 
-你的回复应该简洁，通常是1-3个引导性问题或简短的启发。`;
+你的回复应该简洁，通常是1-3个引导性问题或简短的启发。在开始对话时，可以先帮助学生了解本节的学习目标。`;
 
 export default function Learning() {
   const { projectId, chapterId } = useParams<{ projectId: string; chapterId: string }>();
@@ -26,6 +30,7 @@ export default function Learning() {
   const { toast } = useToast();
   const [project, setProject] = useState(() => getProject(projectId!));
   const [isLoading, setIsLoading] = useState(false);
+  const [showObjectives, setShowObjectives] = useState(true);
 
   const chapter = project?.chapters.find(c => c.id === chapterId);
   const settings = getLLMSettings();
@@ -77,6 +82,15 @@ export default function Learning() {
         content: m.content,
       })) || [];
 
+      // Build objectives context
+      const objectivesText = chapter.objectives?.length 
+        ? chapter.objectives.map((o, i) => `${i + 1}. ${o}`).join('\n')
+        : '无具体目标';
+
+      const subChaptersText = chapter.subChapters?.length
+        ? chapter.subChapters.map(s => `- ${s.title}: ${s.objectives?.join(', ') || '无'}`).join('\n')
+        : '';
+
       const systemPrompt = `${SOCRATIC_PROMPT}
 
 当前学习内容：
@@ -84,7 +98,15 @@ export default function Learning() {
 - 章节：${chapter.title}
 - 章节描述：${chapter.description}
 
-请基于以上上下文进行教学引导。`;
+本章学习目标：
+${objectivesText}
+
+${subChaptersText ? `子章节及目标：\n${subChaptersText}` : ''}
+
+项目总体学习目标：
+${project.learningObjectives?.map((o, i) => `${i + 1}. ${o}`).join('\n') || '无'}
+
+请基于以上学习目标进行启发式教学引导，帮助学生达成这些目标。`;
 
       const { data, error } = await supabase.functions.invoke('chat', {
         body: {
@@ -214,6 +236,38 @@ export default function Learning() {
             </Button>
           </div>
         </div>
+
+        {/* Learning Objectives Panel */}
+        {chapter.objectives && chapter.objectives.length > 0 && (
+          <div className="border-b border-border bg-muted/30">
+            <button
+              onClick={() => setShowObjectives(!showObjectives)}
+              className="w-full px-4 py-2 flex items-center justify-between text-sm hover:bg-muted/50 transition-colors"
+            >
+              <div className="flex items-center gap-2">
+                <Target className="w-4 h-4 text-primary" />
+                <span className="font-medium text-foreground">本章学习目标</span>
+              </div>
+              {showObjectives ? (
+                <ChevronDown className="w-4 h-4 text-muted-foreground" />
+              ) : (
+                <ChevronRight className="w-4 h-4 text-muted-foreground" />
+              )}
+            </button>
+            {showObjectives && (
+              <div className="px-4 pb-3">
+                <ul className="space-y-1">
+                  {chapter.objectives.map((objective, i) => (
+                    <li key={i} className="text-sm text-muted-foreground flex items-start gap-2">
+                      <span className="text-primary">•</span>
+                      <span>{objective}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* API Warning */}
         {!settings && (
