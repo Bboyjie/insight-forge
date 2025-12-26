@@ -21,6 +21,11 @@ const PLANNER_PROMPT = `你是一个专业的课程设计师和学习规划专�
 5. 章节安排应该由浅入深，循序渐进
 6. 学习目标应该是具体的、可衡量的
 7. 考虑用户的当前水平和可用时间
+8. 【重要】每个子章节必须包含 skillRewards 数组，表示完成该子章节后获得的能力积分
+   - 能力维度包括：哲学、历史、文学、科学、艺术、技术、经济、社会、心理、自然
+   - 根据内容的深度和前沿程度给出积分，范围是 0.1-2.0 分
+   - 基础入门内容给 0.1-0.3 分，进阶内容给 0.3-0.8 分，深入/前沿内容给 0.8-2.0 分
+   - 一个子章节可以涉及多个维度
 
 请以 JSON 格式返回，格式如下：
 {
@@ -40,7 +45,11 @@ const PLANNER_PROMPT = `你是一个专业的课程设计师和学习规划专�
         {
           "title": "1.1 子章节标题",
           "description": "子章节内容描述",
-          "objectives": ["学会..."]
+          "objectives": ["学会..."],
+          "skillRewards": [
+            { "dimension": "哲学", "points": 0.3 },
+            { "dimension": "历史", "points": 0.2 }
+          ]
         }
       ]
     }
@@ -115,6 +124,8 @@ export default function CreateProject() {
           description: sub.description || '',
           objectives: sub.objectives || [],
           completed: false,
+          messages: [],
+          skillRewards: sub.skillRewards || [],
         })) || [],
         completed: false,
         messages: [],
@@ -196,6 +207,8 @@ export default function CreateProject() {
         description: sub.description,
         objectives: sub.objectives,
         completed: false,
+        messages: [],
+        skillRewards: [],
       })),
       completed: false,
       messages: [],

@@ -36,6 +36,13 @@ export interface SubChapter {
   description: string;
   objectives: string[];
   completed: boolean;
+  messages: ChatMessage[];
+  skillRewards?: SkillReward[];
+}
+
+export interface SkillReward {
+  dimension: string;
+  points: number;
 }
 
 export interface ChatMessage {

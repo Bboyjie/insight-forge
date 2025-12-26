@@ -3,8 +3,8 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ChatInterface } from '@/components/chat/ChatInterface';
 import { Button } from '@/components/ui/button';
-import { getProject, saveProject, generateId, ChatMessage, getLLMSettings, Chapter } from '@/lib/storage';
-import { ArrowLeft, CheckCircle, RotateCcw, AlertCircle, Target, ChevronDown, ChevronRight } from 'lucide-react';
+import { getProject, saveProject, generateId, ChatMessage, getLLMSettings, getUserProfile, saveUserProfile, SubChapter } from '@/lib/storage';
+import { ArrowLeft, CheckCircle, RotateCcw, AlertCircle, Target, ChevronDown, ChevronRight, Award } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { cn } from '@/lib/utils';
@@ -25,7 +25,7 @@ const SOCRATIC_PROMPT = `你是一位启发式导师，采用苏格拉底式教�
 你的回复应该简洁，通常是1-3个引导性问题或简短的启发。在开始对话时，可以先帮助学生了解本节的学习目标。`;
 
 export default function Learning() {
-  const { projectId, chapterId } = useParams<{ projectId: string; chapterId: string }>();
+  const { projectId, chapterId, subChapterId } = useParams<{ projectId: string; chapterId: string; subChapterId?: string }>();
   const navigate = useNavigate();
   const { toast } = useToast();
   const [project, setProject] = useState(() => getProject(projectId!));
@@ -33,15 +33,33 @@ export default function Learning() {
   const [showObjectives, setShowObjectives] = useState(true);
 
   const chapter = project?.chapters.find(c => c.id === chapterId);
+  const subChapter = subChapterId ? chapter?.subChapters?.find(s => s.id === subChapterId) : null;
   const settings = getLLMSettings();
+
+  // Determine current learning target (subChapter if specified, otherwise chapter)
+  const currentTarget = subChapter || chapter;
+  const messages = subChapter ? subChapter.messages : chapter?.messages || [];
 
   if (!project || !chapter) {
     return (
       <AppLayout>
         <div className="max-w-4xl mx-auto px-4 py-8 text-center">
-          <h1 className="text-2xl font-bold text-foreground mb-4">章节不存在</h1>
+          <h1 className="text-2xl font-bold text-foreground mb-4">内容不存在</h1>
           <Link to="/projects">
             <Button>返回项目列表</Button>
+          </Link>
+        </div>
+      </AppLayout>
+    );
+  }
+
+  if (subChapterId && !subChapter) {
+    return (
+      <AppLayout>
+        <div className="max-w-4xl mx-auto px-4 py-8 text-center">
+          <h1 className="text-2xl font-bold text-foreground mb-4">子章节不存在</h1>
+          <Link to={`/projects/${projectId}`}>
+            <Button>返回项目详情</Button>
           </Link>
         </div>
       </AppLayout>
@@ -59,11 +77,22 @@ export default function Learning() {
     };
 
     // Update project with user message
-    const updatedChapters = project.chapters.map(c =>
-      c.id === chapterId
-        ? { ...c, messages: [...c.messages, userMessage] }
-        : c
-    );
+    const updatedChapters = project.chapters.map(c => {
+      if (c.id !== chapterId) return c;
+      
+      if (subChapterId) {
+        return {
+          ...c,
+          subChapters: c.subChapters?.map(s =>
+            s.id === subChapterId
+              ? { ...s, messages: [...s.messages, userMessage] }
+              : s
+          ),
+        };
+      } else {
+        return { ...c, messages: [...c.messages, userMessage] };
+      }
+    });
     
     const updatedProject = { ...project, chapters: updatedChapters };
     setProject(updatedProject);
@@ -76,32 +105,31 @@ export default function Learning() {
       }
 
       // Build messages for LLM
-      const currentChapter = updatedChapters.find(c => c.id === chapterId);
-      const historyMessages = currentChapter?.messages.map(m => ({
+      const currentMessages = subChapterId
+        ? updatedChapters.find(c => c.id === chapterId)?.subChapters?.find(s => s.id === subChapterId)?.messages
+        : updatedChapters.find(c => c.id === chapterId)?.messages;
+      
+      const historyMessages = currentMessages?.map(m => ({
         role: m.role,
         content: m.content,
       })) || [];
 
       // Build objectives context
-      const objectivesText = chapter.objectives?.length 
-        ? chapter.objectives.map((o, i) => `${i + 1}. ${o}`).join('\n')
+      const targetObjectives = currentTarget?.objectives || [];
+      const objectivesText = targetObjectives.length 
+        ? targetObjectives.map((o, i) => `${i + 1}. ${o}`).join('\n')
         : '无具体目标';
-
-      const subChaptersText = chapter.subChapters?.length
-        ? chapter.subChapters.map(s => `- ${s.title}: ${s.objectives?.join(', ') || '无'}`).join('\n')
-        : '';
 
       const systemPrompt = `${SOCRATIC_PROMPT}
 
 当前学习内容：
 - 项目：${project.title}
 - 章节：${chapter.title}
-- 章节描述：${chapter.description}
+${subChapter ? `- 子章节：${subChapter.title}` : ''}
+- 描述：${currentTarget?.description || ''}
 
-本章学习目标：
+本节学习目标：
 ${objectivesText}
-
-${subChaptersText ? `子章节及目标：\n${subChaptersText}` : ''}
 
 项目总体学习目标：
 ${project.learningObjectives?.map((o, i) => `${i + 1}. ${o}`).join('\n') || '无'}
@@ -136,11 +164,22 @@ ${project.learningObjectives?.map((o, i) => `${i + 1}. ${o}`).join('\n') || '无
         timestamp: new Date().toISOString(),
       };
 
-      const finalChapters = updatedProject.chapters.map(c =>
-        c.id === chapterId
-          ? { ...c, messages: [...c.messages, assistantMessage] }
-          : c
-      );
+      const finalChapters = updatedProject.chapters.map(c => {
+        if (c.id !== chapterId) return c;
+        
+        if (subChapterId) {
+          return {
+            ...c,
+            subChapters: c.subChapters?.map(s =>
+              s.id === subChapterId
+                ? { ...s, messages: [...s.messages, assistantMessage] }
+                : s
+            ),
+          };
+        } else {
+          return { ...c, messages: [...c.messages, assistantMessage] };
+        }
+      });
 
       const finalProject = { ...updatedProject, chapters: finalChapters };
       setProject(finalProject);
@@ -161,11 +200,22 @@ ${project.learningObjectives?.map((o, i) => `${i + 1}. ${o}`).join('\n') || '无
         timestamp: new Date().toISOString(),
       };
 
-      const errorChapters = updatedProject.chapters.map(c =>
-        c.id === chapterId
-          ? { ...c, messages: [...c.messages, errorAssistantMessage] }
-          : c
-      );
+      const errorChapters = updatedProject.chapters.map(c => {
+        if (c.id !== chapterId) return c;
+        
+        if (subChapterId) {
+          return {
+            ...c,
+            subChapters: c.subChapters?.map(s =>
+              s.id === subChapterId
+                ? { ...s, messages: [...s.messages, errorAssistantMessage] }
+                : s
+            ),
+          };
+        } else {
+          return { ...c, messages: [...c.messages, errorAssistantMessage] };
+        }
+      });
 
       const errorProject = { ...updatedProject, chapters: errorChapters };
       setProject(errorProject);
@@ -176,31 +226,101 @@ ${project.learningObjectives?.map((o, i) => `${i + 1}. ${o}`).join('\n') || '无
   };
 
   const handleResetChat = () => {
-    const updatedChapters = project.chapters.map(c =>
-      c.id === chapterId ? { ...c, messages: [] } : c
-    );
+    const updatedChapters = project.chapters.map(c => {
+      if (c.id !== chapterId) return c;
+      
+      if (subChapterId) {
+        return {
+          ...c,
+          subChapters: c.subChapters?.map(s =>
+            s.id === subChapterId ? { ...s, messages: [] } : s
+          ),
+        };
+      } else {
+        return { ...c, messages: [] };
+      }
+    });
+    
     const updatedProject = { ...project, chapters: updatedChapters };
     setProject(updatedProject);
     saveProject(updatedProject);
     toast({
       title: "对话已重置",
-      description: "你可以重新开始学习这个章节",
+      description: "你可以重新开始学习",
     });
   };
 
-  const handleCompleteChapter = () => {
-    const updatedChapters = project.chapters.map(c =>
-      c.id === chapterId ? { ...c, completed: true } : c
-    );
+  const handleComplete = () => {
+    let earnedRewards: { dimension: string; points: number }[] = [];
+
+    const updatedChapters = project.chapters.map(c => {
+      if (c.id !== chapterId) return c;
+      
+      if (subChapterId) {
+        const updatedSubChapters = c.subChapters?.map(s => {
+          if (s.id === subChapterId) {
+            // Collect skill rewards
+            if (s.skillRewards && s.skillRewards.length > 0) {
+              earnedRewards = s.skillRewards;
+            }
+            return { ...s, completed: true };
+          }
+          return s;
+        });
+        
+        // Check if all subChapters are completed
+        const allSubCompleted = updatedSubChapters?.every(s => s.completed) ?? true;
+        
+        return { 
+          ...c, 
+          subChapters: updatedSubChapters,
+          completed: allSubCompleted,
+        };
+      } else {
+        return { ...c, completed: true };
+      }
+    });
+
     const updatedProject = { ...project, chapters: updatedChapters };
     setProject(updatedProject);
     saveProject(updatedProject);
-    toast({
-      title: "章节完成！",
-      description: "继续保持，你正在取得进步！",
-    });
+
+    // Update skill dimensions if there are rewards
+    if (earnedRewards.length > 0) {
+      const profile = getUserProfile();
+      earnedRewards.forEach(reward => {
+        const dimension = profile.dimensions.find(d => d.name === reward.dimension);
+        if (dimension) {
+          dimension.score = Math.min(dimension.score + reward.points, dimension.maxScore);
+        } else {
+          profile.dimensions.push({
+            name: reward.dimension,
+            score: reward.points,
+            maxScore: 100,
+          });
+        }
+      });
+      profile.completedChapters += 1;
+      saveUserProfile(profile);
+
+      const rewardText = earnedRewards.map(r => `${r.dimension} +${r.points}`).join(', ');
+      toast({
+        title: "学习完成！获得能力积分",
+        description: rewardText,
+      });
+    } else {
+      toast({
+        title: subChapterId ? "子章节完成！" : "章节完成！",
+        description: "继续保持，你正在取得进步！",
+      });
+    }
+
     navigate(`/projects/${projectId}`);
   };
+
+  const title = subChapter ? subChapter.title : chapter.title;
+  const subtitle = subChapter ? `${project.title} · ${chapter.title}` : project.title;
+  const objectives = currentTarget?.objectives || [];
 
   return (
     <AppLayout>
@@ -217,10 +337,10 @@ ${project.learningObjectives?.map((o, i) => `${i + 1}. ${o}`).join('\n') || '无
             </Button>
             <div>
               <h1 className="font-semibold text-foreground text-sm md:text-base line-clamp-1">
-                {chapter.title}
+                {title}
               </h1>
-              <p className="text-xs text-muted-foreground hidden md:block">
-                {project.title}
+              <p className="text-xs text-muted-foreground hidden md:block line-clamp-1">
+                {subtitle}
               </p>
             </div>
           </div>
@@ -230,15 +350,15 @@ ${project.learningObjectives?.map((o, i) => `${i + 1}. ${o}`).join('\n') || '无
               <RotateCcw className="w-4 h-4 mr-1" />
               <span className="hidden md:inline">重置</span>
             </Button>
-            <Button size="sm" onClick={handleCompleteChapter}>
+            <Button size="sm" onClick={handleComplete}>
               <CheckCircle className="w-4 h-4 mr-1" />
-              <span className="hidden md:inline">完成本章</span>
+              <span className="hidden md:inline">完成学习</span>
             </Button>
           </div>
         </div>
 
         {/* Learning Objectives Panel */}
-        {chapter.objectives && chapter.objectives.length > 0 && (
+        {objectives.length > 0 && (
           <div className="border-b border-border bg-muted/30">
             <button
               onClick={() => setShowObjectives(!showObjectives)}
@@ -246,7 +366,7 @@ ${project.learningObjectives?.map((o, i) => `${i + 1}. ${o}`).join('\n') || '无
             >
               <div className="flex items-center gap-2">
                 <Target className="w-4 h-4 text-primary" />
-                <span className="font-medium text-foreground">本章学习目标</span>
+                <span className="font-medium text-foreground">学习目标</span>
               </div>
               {showObjectives ? (
                 <ChevronDown className="w-4 h-4 text-muted-foreground" />
@@ -257,13 +377,27 @@ ${project.learningObjectives?.map((o, i) => `${i + 1}. ${o}`).join('\n') || '无
             {showObjectives && (
               <div className="px-4 pb-3">
                 <ul className="space-y-1">
-                  {chapter.objectives.map((objective, i) => (
+                  {objectives.map((objective, i) => (
                     <li key={i} className="text-sm text-muted-foreground flex items-start gap-2">
                       <span className="text-primary">•</span>
                       <span>{objective}</span>
                     </li>
                   ))}
                 </ul>
+                {/* Show skill rewards if available */}
+                {subChapter?.skillRewards && subChapter.skillRewards.length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-border">
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Award className="w-3 h-3 text-primary" />
+                      <span>完成奖励：</span>
+                      {subChapter.skillRewards.map((r, i) => (
+                        <span key={i} className="bg-primary/10 text-primary px-2 py-0.5 rounded">
+                          {r.dimension} +{r.points}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -282,7 +416,7 @@ ${project.learningObjectives?.map((o, i) => `${i + 1}. ${o}`).join('\n') || '无
         {/* Chat Interface */}
         <div className="flex-1 overflow-hidden">
           <ChatInterface
-            messages={chapter.messages}
+            messages={messages}
             onSendMessage={handleSendMessage}
             isLoading={isLoading}
             placeholder="输入你的问题或想法..."
