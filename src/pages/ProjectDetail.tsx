@@ -4,7 +4,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { getProject, saveProject, deleteProject } from '@/lib/storage';
-import { ArrowLeft, Play, CheckCircle, Circle, Trash2, Clock, Target, ChevronDown, ChevronRight } from 'lucide-react';
+import { ArrowLeft, Play, CheckCircle, Circle, Trash2, Clock, Target, ChevronDown, ChevronRight, Award } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   AlertDialog,
@@ -39,9 +39,18 @@ export default function ProjectDetail() {
     );
   }
 
-  const completedChapters = project.chapters.filter(c => c.completed).length;
-  const progressPercent = project.chapters.length > 0 
-    ? (completedChapters / project.chapters.length) * 100 
+  // Calculate progress based on subchapters
+  const totalSubChapters = project.chapters.reduce((acc, ch) => 
+    acc + (ch.subChapters?.length || 1), 0
+  );
+  const completedSubChapters = project.chapters.reduce((acc, ch) => {
+    if (ch.subChapters && ch.subChapters.length > 0) {
+      return acc + ch.subChapters.filter(s => s.completed).length;
+    }
+    return acc + (ch.completed ? 1 : 0);
+  }, 0);
+  const progressPercent = totalSubChapters > 0 
+    ? (completedSubChapters / totalSubChapters) * 100 
     : 0;
 
   const handleDelete = () => {
@@ -53,12 +62,24 @@ export default function ProjectDetail() {
     navigate('/projects');
   };
 
-  const toggleChapterComplete = (chapterId: string) => {
+  const toggleSubChapterComplete = (chapterId: string, subChapterId: string) => {
     const updatedProject = {
       ...project,
-      chapters: project.chapters.map(ch =>
-        ch.id === chapterId ? { ...ch, completed: !ch.completed } : ch
-      ),
+      chapters: project.chapters.map(ch => {
+        if (ch.id !== chapterId) return ch;
+        
+        const updatedSubChapters = ch.subChapters?.map(s =>
+          s.id === subChapterId ? { ...s, completed: !s.completed } : s
+        );
+        
+        const allSubCompleted = updatedSubChapters?.every(s => s.completed) ?? true;
+        
+        return { 
+          ...ch, 
+          subChapters: updatedSubChapters,
+          completed: allSubCompleted,
+        };
+      }),
     };
     setProject(updatedProject);
     saveProject(updatedProject);
@@ -150,7 +171,7 @@ export default function ProjectDetail() {
             <div className="flex items-center justify-between text-sm mb-2">
               <span className="text-muted-foreground">整体进度</span>
               <span className="font-medium text-foreground">
-                {completedChapters}/{project.chapters.length} 章节完成
+                {completedSubChapters}/{totalSubChapters} 子章节完成
               </span>
             </div>
             <Progress value={progressPercent} className="h-2" />
@@ -164,6 +185,9 @@ export default function ProjectDetail() {
             const isExpanded = expandedChapters.has(chapter.id);
             const hasSubChapters = chapter.subChapters && chapter.subChapters.length > 0;
             const hasObjectives = chapter.objectives && chapter.objectives.length > 0;
+            const subChapterProgress = hasSubChapters 
+              ? chapter.subChapters!.filter(s => s.completed).length 
+              : 0;
 
             return (
               <div
@@ -175,16 +199,13 @@ export default function ProjectDetail() {
               >
                 {/* Main Chapter Row */}
                 <div className="p-4 flex items-center gap-4 group">
-                  <button
-                    onClick={() => toggleChapterComplete(chapter.id)}
-                    className="flex-shrink-0"
-                  >
+                  <div className="flex-shrink-0">
                     {chapter.completed ? (
                       <CheckCircle className="w-6 h-6 text-primary" />
                     ) : (
-                      <Circle className="w-6 h-6 text-muted-foreground hover:text-primary transition-colors" />
+                      <Circle className="w-6 h-6 text-muted-foreground" />
                     )}
-                  </button>
+                  </div>
 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
@@ -210,18 +231,12 @@ export default function ProjectDetail() {
                     <p className="text-sm text-muted-foreground truncate mt-1">
                       {chapter.description}
                     </p>
+                    {hasSubChapters && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        进度：{subChapterProgress}/{chapter.subChapters!.length}
+                      </p>
+                    )}
                   </div>
-
-                  <Link to={`/projects/${project.id}/learn/${chapter.id}`}>
-                    <Button 
-                      variant="ghost" 
-                      size="sm"
-                      className="opacity-0 group-hover:opacity-100 transition-opacity"
-                    >
-                      <Play className="w-4 h-4 mr-1" />
-                      学习
-                    </Button>
-                  </Link>
                 </div>
 
                 {/* Expanded Content */}
@@ -245,26 +260,65 @@ export default function ProjectDetail() {
                     {/* Sub Chapters */}
                     {hasSubChapters && (
                       <div>
-                        <h4 className="text-sm font-medium text-foreground mb-2">子章节</h4>
-                        <div className="space-y-2 ml-5">
+                        <h4 className="text-sm font-medium text-foreground mb-2">子章节（点击学习）</h4>
+                        <div className="space-y-2 ml-2">
                           {chapter.subChapters!.map((sub) => (
-                            <div key={sub.id} className="text-sm">
-                              <div className="flex items-center gap-2">
-                                {sub.completed ? (
-                                  <CheckCircle className="w-4 h-4 text-primary" />
-                                ) : (
-                                  <Circle className="w-4 h-4 text-muted-foreground" />
-                                )}
-                                <span className={cn(
-                                  "text-foreground",
-                                  sub.completed && "line-through opacity-60"
-                                )}>
-                                  {sub.title}
-                                </span>
+                            <div 
+                              key={sub.id} 
+                              className={cn(
+                                "p-3 rounded-lg border border-border hover:border-primary/50 transition-colors",
+                                sub.completed && "opacity-60 bg-muted/30"
+                              )}
+                            >
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="flex items-center gap-2 flex-1 min-w-0">
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      toggleSubChapterComplete(chapter.id, sub.id);
+                                    }}
+                                    className="flex-shrink-0"
+                                  >
+                                    {sub.completed ? (
+                                      <CheckCircle className="w-4 h-4 text-primary" />
+                                    ) : (
+                                      <Circle className="w-4 h-4 text-muted-foreground hover:text-primary" />
+                                    )}
+                                  </button>
+                                  <span className={cn(
+                                    "text-sm text-foreground truncate",
+                                    sub.completed && "line-through"
+                                  )}>
+                                    {sub.title}
+                                  </span>
+                                </div>
+                                
+                                <Link to={`/projects/${project.id}/learn/${chapter.id}/${sub.id}`}>
+                                  <Button 
+                                    variant="ghost" 
+                                    size="sm"
+                                    className="flex-shrink-0"
+                                  >
+                                    <Play className="w-4 h-4 mr-1" />
+                                    学习
+                                  </Button>
+                                </Link>
                               </div>
+                              
                               {sub.objectives && sub.objectives.length > 0 && (
-                                <div className="ml-6 mt-1 text-xs text-muted-foreground">
+                                <div className="ml-6 mt-2 text-xs text-muted-foreground">
                                   目标: {sub.objectives.join(', ')}
+                                </div>
+                              )}
+                              
+                              {sub.skillRewards && sub.skillRewards.length > 0 && (
+                                <div className="ml-6 mt-1 flex items-center gap-1">
+                                  <Award className="w-3 h-3 text-primary" />
+                                  {sub.skillRewards.map((r, i) => (
+                                    <span key={i} className="text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded">
+                                      {r.dimension} +{r.points}
+                                    </span>
+                                  ))}
                                 </div>
                               )}
                             </div>
