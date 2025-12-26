@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ChatInterface } from '@/components/chat/ChatInterface';
 import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
 import { getProject, saveProject, generateId, ChatMessage, getLLMSettings, getUserProfile, saveUserProfile, SubChapter } from '@/lib/storage';
-import { ArrowLeft, CheckCircle, RotateCcw, AlertCircle, Target, ChevronDown, ChevronRight, Award } from 'lucide-react';
+import { ArrowLeft, CheckCircle, RotateCcw, AlertCircle, Target, ChevronDown, ChevronRight, Award, FileText, Save, PanelRightOpen, PanelRightClose } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { cn } from '@/lib/utils';
@@ -31,6 +32,9 @@ export default function Learning() {
   const [project, setProject] = useState(() => getProject(projectId!));
   const [isLoading, setIsLoading] = useState(false);
   const [showObjectives, setShowObjectives] = useState(true);
+  const [showNotes, setShowNotes] = useState(true);
+  const [notes, setNotes] = useState('');
+  const [isSavingNotes, setIsSavingNotes] = useState(false);
 
   const chapter = project?.chapters.find(c => c.id === chapterId);
   const subChapter = subChapterId ? chapter?.subChapters?.find(s => s.id === subChapterId) : null;
@@ -39,6 +43,48 @@ export default function Learning() {
   // Determine current learning target (subChapter if specified, otherwise chapter)
   const currentTarget = subChapter || chapter;
   const messages = subChapter ? subChapter.messages : chapter?.messages || [];
+
+  // Load notes when component mounts or subChapter changes
+  useEffect(() => {
+    if (subChapter) {
+      setNotes(subChapter.notes || '');
+    }
+  }, [subChapterId, subChapter?.notes]);
+
+  // Auto-save notes with debounce
+  const saveNotes = useCallback((notesContent: string) => {
+    if (!project || !chapterId || !subChapterId) return;
+
+    const updatedChapters = project.chapters.map(c => {
+      if (c.id !== chapterId) return c;
+      return {
+        ...c,
+        subChapters: c.subChapters?.map(s =>
+          s.id === subChapterId ? { ...s, notes: notesContent } : s
+        ),
+      };
+    });
+
+    const updatedProject = { ...project, chapters: updatedChapters };
+    setProject(updatedProject);
+    saveProject(updatedProject);
+  }, [project, chapterId, subChapterId]);
+
+  const handleNotesChange = (value: string) => {
+    setNotes(value);
+  };
+
+  const handleSaveNotes = () => {
+    setIsSavingNotes(true);
+    saveNotes(notes);
+    setTimeout(() => {
+      setIsSavingNotes(false);
+      toast({
+        title: "笔记已保存",
+        description: "你的学习笔记已自动保存",
+      });
+    }, 300);
+  };
 
   if (!project || !chapter) {
     return (
@@ -251,6 +297,11 @@ ${project.learningObjectives?.map((o, i) => `${i + 1}. ${o}`).join('\n') || '无
   };
 
   const handleComplete = () => {
+    // Save notes before completing
+    if (subChapterId && notes) {
+      saveNotes(notes);
+    }
+
     let earnedRewards: { dimension: string; points: number }[] = [];
 
     const updatedChapters = project.chapters.map(c => {
@@ -346,6 +397,21 @@ ${project.learningObjectives?.map((o, i) => `${i + 1}. ${o}`).join('\n') || '无
           </div>
 
           <div className="flex items-center gap-2">
+            {subChapterId && (
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={() => setShowNotes(!showNotes)}
+                className="hidden md:flex"
+              >
+                {showNotes ? (
+                  <PanelRightClose className="w-4 h-4 mr-1" />
+                ) : (
+                  <PanelRightOpen className="w-4 h-4 mr-1" />
+                )}
+                <span className="hidden lg:inline">笔记</span>
+              </Button>
+            )}
             <Button variant="ghost" size="sm" onClick={handleResetChat}>
               <RotateCcw className="w-4 h-4 mr-1" />
               <span className="hidden md:inline">重置</span>
@@ -413,15 +479,102 @@ ${project.learningObjectives?.map((o, i) => `${i + 1}. ${o}`).join('\n') || '无
           </div>
         )}
 
-        {/* Chat Interface */}
-        <div className="flex-1 overflow-hidden">
-          <ChatInterface
-            messages={messages}
-            onSendMessage={handleSendMessage}
-            isLoading={isLoading}
-            placeholder="输入你的问题或想法..."
-          />
+        {/* Main Content Area - Chat + Notes */}
+        <div className="flex-1 overflow-hidden flex">
+          {/* Chat Interface */}
+          <div className={cn(
+            "flex-1 overflow-hidden transition-all duration-300",
+            showNotes && subChapterId ? "md:w-[60%]" : "w-full"
+          )}>
+            <ChatInterface
+              messages={messages}
+              onSendMessage={handleSendMessage}
+              isLoading={isLoading}
+              placeholder="输入你的问题或想法..."
+            />
+          </div>
+
+          {/* Notes Panel - Only show for subChapter learning */}
+          {subChapterId && showNotes && (
+            <div className="hidden md:flex w-[40%] border-l border-border flex-col bg-card">
+              {/* Notes Header */}
+              <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-primary" />
+                  <span className="font-medium text-foreground text-sm">学习笔记</span>
+                </div>
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  onClick={handleSaveNotes}
+                  disabled={isSavingNotes}
+                >
+                  <Save className="w-4 h-4 mr-1" />
+                  {isSavingNotes ? '保存中...' : '保存'}
+                </Button>
+              </div>
+
+              {/* Notes Content */}
+              <div className="flex-1 p-4 overflow-hidden flex flex-col">
+                <Textarea
+                  value={notes}
+                  onChange={(e) => handleNotesChange(e.target.value)}
+                  placeholder="在这里记录你的学习笔记...
+
+• 记录关键概念和定义
+• 写下你的疑问和思考
+• 总结学到的要点
+• 记录与其他知识的联系"
+                  className="flex-1 resize-none bg-background text-foreground placeholder:text-muted-foreground min-h-[200px]"
+                />
+                <p className="text-xs text-muted-foreground mt-2">
+                  提示：笔记会在完成学习时自动保存，也可点击保存按钮手动保存
+                </p>
+              </div>
+            </div>
+          )}
         </div>
+
+        {/* Mobile Notes Toggle */}
+        {subChapterId && (
+          <div className="md:hidden border-t border-border">
+            <button
+              onClick={() => setShowNotes(!showNotes)}
+              className="w-full px-4 py-3 flex items-center justify-between text-sm hover:bg-muted/50 transition-colors"
+            >
+              <div className="flex items-center gap-2">
+                <FileText className="w-4 h-4 text-primary" />
+                <span className="font-medium text-foreground">学习笔记</span>
+              </div>
+              {showNotes ? (
+                <ChevronDown className="w-4 h-4 text-muted-foreground" />
+              ) : (
+                <ChevronRight className="w-4 h-4 text-muted-foreground" />
+              )}
+            </button>
+            {showNotes && (
+              <div className="p-4 border-t border-border">
+                <Textarea
+                  value={notes}
+                  onChange={(e) => handleNotesChange(e.target.value)}
+                  placeholder="在这里记录你的学习笔记..."
+                  className="resize-none bg-background text-foreground placeholder:text-muted-foreground min-h-[120px]"
+                />
+                <div className="flex justify-end mt-2">
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={handleSaveNotes}
+                    disabled={isSavingNotes}
+                  >
+                    <Save className="w-4 h-4 mr-1" />
+                    {isSavingNotes ? '保存中...' : '保存笔记'}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </AppLayout>
   );
