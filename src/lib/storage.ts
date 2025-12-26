@@ -38,6 +38,7 @@ export interface SubChapter {
   completed: boolean;
   messages: ChatMessage[];
   skillRewards?: SkillReward[];
+  notes?: string;
 }
 
 export interface SkillReward {
