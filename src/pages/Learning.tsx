@@ -1,43 +1,95 @@
-import { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
-import { AppLayout } from '@/components/layout/AppLayout';
-import { ChatInterface } from '@/components/chat/ChatInterface';
-import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
-import { getProject, saveProject, generateId, ChatMessage, getLLMSettings, getUserProfile, saveUserProfile, SubChapter } from '@/lib/storage';
-import { ArrowLeft, CheckCircle, RotateCcw, AlertCircle, Target, ChevronDown, ChevronRight, Award, FileText, Save, PanelRightOpen, PanelRightClose } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
-import { supabase } from '@/integrations/supabase/client';
-import { cn } from '@/lib/utils';
+import { useState, useEffect, useCallback } from "react";
+import { useParams, useNavigate, Link } from "react-router-dom";
+import { AppLayout } from "@/components/layout/AppLayout";
+import { ChatInterface } from "@/components/chat/ChatInterface";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  getProject,
+  saveProject,
+  generateId,
+  ChatMessage,
+  getLLMSettings,
+  getUserProfile,
+  saveUserProfile,
+  SubChapter,
+} from "@/lib/storage";
+import {
+  ArrowLeft,
+  CheckCircle,
+  RotateCcw,
+  AlertCircle,
+  Target,
+  ChevronDown,
+  ChevronRight,
+  Award,
+  FileText,
+  Save,
+  PanelRightOpen,
+  PanelRightClose,
+} from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
+import { cn } from "@/lib/utils";
 
-const SOCRATIC_PROMPT = `你是一位启发式导师，采用苏格拉底式教学法，以学习目标为导向进行教学。
+const SOCRATIC_PROMPT = `# Role
+你是一位以“认知成长”为核心的苏格拉底式导师。你的目标不是为了让学生感到舒服，而是为了让学生通过深度的思考、试错和纠正，真正掌握知识并构建严密的逻辑体系。你坚持“严慈相济”：对学生的努力保持鼓励（慈），对学生的逻辑漏洞和知识错误保持零容忍（严）。
 
-核心原则：
-1. 以学习目标为导向，确保学生朝着目标前进
-2. 不要直接给出答案或长篇大论
-3. 通过提问引导学生思考
-4. 如果学生回答正确，给予肯定并深入探索
-5. 如果学生回答错误，温柔引导，不要直接否定
-6. 使用类比和例子帮助理解
-7. 鼓励学生自己发现答案
-8. 定期检查学生对学习目标的掌握程度
-9. 在适当时候总结学生已经达成的目标
+# Core Philosophy
+1.  **思维优于答案**：答案只是副产品，推导过程才是核心。
+2.  **必要的认知冲突**：当学生处于舒适区或持有错误观念时，你需要制造认知冲突，迫使他们重新审视自己的假设。
+3.  **最近发展区 (ZPD)**：你的引导难度应略高于学生当前水平，让他们“跳一跳才够得着”。
 
-你的回复应该简洁，通常是1-3个引导性问题或简短的启发。在开始对话时，可以先帮助学生了解本节的学习目标。`;
+# Operational Guidelines
+
+## 1. 启动阶段 (Goal Setting)
+* 开场时，不直接讲课。先询问或协助学生明确本节课具体的“学习目标”（Learning Objective）。
+* 确认目标后，评估学生的基础认知，再决定从哪里开始引导。
+
+## 2. 引导原则 (Guiding Protocol)
+* **禁止直接教学**：严禁直接给出定义、答案或长篇大论的解释（除非学生已经尝试了多次且完全卡住）。
+* **少即是多**：每次回复通常只包含 1-2 个核心问题或反直觉的场景假设。
+* **追问到底**：当学生回答正确时，不要急着通过。追问：“你是怎么得出这个结论的？”或“如果条件X变了，这个结论还成立吗？”以验证是否真正理解，而非死记硬背。
+
+## 3. 错误处理与反馈 (Error Handling & Feedback) - **CRITICAL**
+* **直面错误**：如果学生出现知识性错误，不要模糊处理。明确指出：“这里的数据/事实是不准确的，请核实X。”
+* **逻辑纠偏**：如果学生出现思维性错误（如因果倒置、循环论证），必须严厉（但非人身攻击）地指出逻辑断裂点。
+    * *Bad:* “这个思路有点意思，但有没有可能……”
+    * *Good:* “你的推导存在逻辑漏洞。你预设了A是B的原因，但没有证据支持这一点。请重新思考这两者的关系。”
+* **拒绝伪勤奋**：如果学生试图用模糊的废话糊弄，或者依赖猜测，请立刻叫停，要求其展示具体的思考步骤。
+
+## 4. 辅助手段 (Scaffolding)
+* **类比降维**：当概念过于抽象时，使用生活中的类比（但要提醒类比的局限性）。
+* **反例验证**：提供一个反例，打破学生的错误归纳。
+
+## 5. 阶段总结 (Checkpoint)
+* 在完成一个小的知识点闭环后，要求学生用自己的话总结。如果总结不到位，打回重写，直到达标为止。
+
+# Tone & Style
+* **专业、客观、坚定**。
+* 不使用过度讨好的语气词（如“亲爱的”、“没关系哦”）。
+* 像一位严格的体育教练：在动作变形时立即纠正，在动作标准时给予肯定。
+
+# Initialization
+请以简短的问候开始，并询问用户今天想探索什么主题或达成什么学习目标。`;
 
 export default function Learning() {
-  const { projectId, chapterId, subChapterId } = useParams<{ projectId: string; chapterId: string; subChapterId?: string }>();
+  const { projectId, chapterId, subChapterId } = useParams<{
+    projectId: string;
+    chapterId: string;
+    subChapterId?: string;
+  }>();
   const navigate = useNavigate();
   const { toast } = useToast();
   const [project, setProject] = useState(() => getProject(projectId!));
   const [isLoading, setIsLoading] = useState(false);
   const [showObjectives, setShowObjectives] = useState(true);
   const [showNotes, setShowNotes] = useState(true);
-  const [notes, setNotes] = useState('');
+  const [notes, setNotes] = useState("");
   const [isSavingNotes, setIsSavingNotes] = useState(false);
 
-  const chapter = project?.chapters.find(c => c.id === chapterId);
-  const subChapter = subChapterId ? chapter?.subChapters?.find(s => s.id === subChapterId) : null;
+  const chapter = project?.chapters.find((c) => c.id === chapterId);
+  const subChapter = subChapterId ? chapter?.subChapters?.find((s) => s.id === subChapterId) : null;
   const settings = getLLMSettings();
 
   // Determine current learning target (subChapter if specified, otherwise chapter)
@@ -47,28 +99,29 @@ export default function Learning() {
   // Load notes when component mounts or subChapter changes
   useEffect(() => {
     if (subChapter) {
-      setNotes(subChapter.notes || '');
+      setNotes(subChapter.notes || "");
     }
   }, [subChapterId, subChapter?.notes]);
 
   // Auto-save notes with debounce
-  const saveNotes = useCallback((notesContent: string) => {
-    if (!project || !chapterId || !subChapterId) return;
+  const saveNotes = useCallback(
+    (notesContent: string) => {
+      if (!project || !chapterId || !subChapterId) return;
 
-    const updatedChapters = project.chapters.map(c => {
-      if (c.id !== chapterId) return c;
-      return {
-        ...c,
-        subChapters: c.subChapters?.map(s =>
-          s.id === subChapterId ? { ...s, notes: notesContent } : s
-        ),
-      };
-    });
+      const updatedChapters = project.chapters.map((c) => {
+        if (c.id !== chapterId) return c;
+        return {
+          ...c,
+          subChapters: c.subChapters?.map((s) => (s.id === subChapterId ? { ...s, notes: notesContent } : s)),
+        };
+      });
 
-    const updatedProject = { ...project, chapters: updatedChapters };
-    setProject(updatedProject);
-    saveProject(updatedProject);
-  }, [project, chapterId, subChapterId]);
+      const updatedProject = { ...project, chapters: updatedChapters };
+      setProject(updatedProject);
+      saveProject(updatedProject);
+    },
+    [project, chapterId, subChapterId],
+  );
 
   const handleNotesChange = (value: string) => {
     setNotes(value);
@@ -117,29 +170,27 @@ export default function Learning() {
 
     const userMessage: ChatMessage = {
       id: generateId(),
-      role: 'user',
+      role: "user",
       content,
       timestamp: new Date().toISOString(),
     };
 
     // Update project with user message
-    const updatedChapters = project.chapters.map(c => {
+    const updatedChapters = project.chapters.map((c) => {
       if (c.id !== chapterId) return c;
-      
+
       if (subChapterId) {
         return {
           ...c,
-          subChapters: c.subChapters?.map(s =>
-            s.id === subChapterId
-              ? { ...s, messages: [...s.messages, userMessage] }
-              : s
+          subChapters: c.subChapters?.map((s) =>
+            s.id === subChapterId ? { ...s, messages: [...s.messages, userMessage] } : s,
           ),
         };
       } else {
         return { ...c, messages: [...c.messages, userMessage] };
       }
     });
-    
+
     const updatedProject = { ...project, chapters: updatedChapters };
     setProject(updatedProject);
     saveProject(updatedProject);
@@ -147,42 +198,43 @@ export default function Learning() {
     try {
       // Check if LLM is configured
       if (!settings?.baseUrl || !settings?.apiKey || !settings?.modelName) {
-        throw new Error('请先在设置页面配置 LLM API');
+        throw new Error("请先在设置页面配置 LLM API");
       }
 
       // Build messages for LLM
       const currentMessages = subChapterId
-        ? updatedChapters.find(c => c.id === chapterId)?.subChapters?.find(s => s.id === subChapterId)?.messages
-        : updatedChapters.find(c => c.id === chapterId)?.messages;
-      
-      const historyMessages = currentMessages?.map(m => ({
-        role: m.role,
-        content: m.content,
-      })) || [];
+        ? updatedChapters.find((c) => c.id === chapterId)?.subChapters?.find((s) => s.id === subChapterId)?.messages
+        : updatedChapters.find((c) => c.id === chapterId)?.messages;
+
+      const historyMessages =
+        currentMessages?.map((m) => ({
+          role: m.role,
+          content: m.content,
+        })) || [];
 
       // Build objectives context
       const targetObjectives = currentTarget?.objectives || [];
-      const objectivesText = targetObjectives.length 
-        ? targetObjectives.map((o, i) => `${i + 1}. ${o}`).join('\n')
-        : '无具体目标';
+      const objectivesText = targetObjectives.length
+        ? targetObjectives.map((o, i) => `${i + 1}. ${o}`).join("\n")
+        : "无具体目标";
 
       const systemPrompt = `${SOCRATIC_PROMPT}
 
 当前学习内容：
 - 项目：${project.title}
 - 章节：${chapter.title}
-${subChapter ? `- 子章节：${subChapter.title}` : ''}
-- 描述：${currentTarget?.description || ''}
+${subChapter ? `- 子章节：${subChapter.title}` : ""}
+- 描述：${currentTarget?.description || ""}
 
 本节学习目标：
 ${objectivesText}
 
 项目总体学习目标：
-${project.learningObjectives?.map((o, i) => `${i + 1}. ${o}`).join('\n') || '无'}
+${project.learningObjectives?.map((o, i) => `${i + 1}. ${o}`).join("\n") || "无"}
 
 请基于以上学习目标进行启发式教学引导，帮助学生达成这些目标。`;
 
-      const { data, error } = await supabase.functions.invoke('chat', {
+      const { data, error } = await supabase.functions.invoke("chat", {
         body: {
           messages: historyMessages,
           baseUrl: settings.baseUrl,
@@ -201,25 +253,23 @@ ${project.learningObjectives?.map((o, i) => `${i + 1}. ${o}`).join('\n') || '无
         throw new Error(data.error);
       }
 
-      const assistantContent = data.choices?.[0]?.message?.content || '抱歉，我暂时无法回应。请稍后再试。';
+      const assistantContent = data.choices?.[0]?.message?.content || "抱歉，我暂时无法回应。请稍后再试。";
 
       const assistantMessage: ChatMessage = {
         id: generateId(),
-        role: 'assistant',
+        role: "assistant",
         content: assistantContent,
         timestamp: new Date().toISOString(),
       };
 
-      const finalChapters = updatedProject.chapters.map(c => {
+      const finalChapters = updatedProject.chapters.map((c) => {
         if (c.id !== chapterId) return c;
-        
+
         if (subChapterId) {
           return {
             ...c,
-            subChapters: c.subChapters?.map(s =>
-              s.id === subChapterId
-                ? { ...s, messages: [...s.messages, assistantMessage] }
-                : s
+            subChapters: c.subChapters?.map((s) =>
+              s.id === subChapterId ? { ...s, messages: [...s.messages, assistantMessage] } : s,
             ),
           };
         } else {
@@ -231,7 +281,7 @@ ${project.learningObjectives?.map((o, i) => `${i + 1}. ${o}`).join('\n') || '无
       setProject(finalProject);
       saveProject(finalProject);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : '请求失败';
+      const errorMessage = err instanceof Error ? err.message : "请求失败";
       toast({
         title: "AI 回复失败",
         description: errorMessage,
@@ -241,21 +291,19 @@ ${project.learningObjectives?.map((o, i) => `${i + 1}. ${o}`).join('\n') || '无
       // Add error message as assistant response
       const errorAssistantMessage: ChatMessage = {
         id: generateId(),
-        role: 'assistant',
+        role: "assistant",
         content: `抱歉，发生了错误：${errorMessage}`,
         timestamp: new Date().toISOString(),
       };
 
-      const errorChapters = updatedProject.chapters.map(c => {
+      const errorChapters = updatedProject.chapters.map((c) => {
         if (c.id !== chapterId) return c;
-        
+
         if (subChapterId) {
           return {
             ...c,
-            subChapters: c.subChapters?.map(s =>
-              s.id === subChapterId
-                ? { ...s, messages: [...s.messages, errorAssistantMessage] }
-                : s
+            subChapters: c.subChapters?.map((s) =>
+              s.id === subChapterId ? { ...s, messages: [...s.messages, errorAssistantMessage] } : s,
             ),
           };
         } else {
@@ -272,21 +320,19 @@ ${project.learningObjectives?.map((o, i) => `${i + 1}. ${o}`).join('\n') || '无
   };
 
   const handleResetChat = () => {
-    const updatedChapters = project.chapters.map(c => {
+    const updatedChapters = project.chapters.map((c) => {
       if (c.id !== chapterId) return c;
-      
+
       if (subChapterId) {
         return {
           ...c,
-          subChapters: c.subChapters?.map(s =>
-            s.id === subChapterId ? { ...s, messages: [] } : s
-          ),
+          subChapters: c.subChapters?.map((s) => (s.id === subChapterId ? { ...s, messages: [] } : s)),
         };
       } else {
         return { ...c, messages: [] };
       }
     });
-    
+
     const updatedProject = { ...project, chapters: updatedChapters };
     setProject(updatedProject);
     saveProject(updatedProject);
@@ -304,11 +350,11 @@ ${project.learningObjectives?.map((o, i) => `${i + 1}. ${o}`).join('\n') || '无
 
     let earnedRewards: { dimension: string; points: number }[] = [];
 
-    const updatedChapters = project.chapters.map(c => {
+    const updatedChapters = project.chapters.map((c) => {
       if (c.id !== chapterId) return c;
-      
+
       if (subChapterId) {
-        const updatedSubChapters = c.subChapters?.map(s => {
+        const updatedSubChapters = c.subChapters?.map((s) => {
           if (s.id === subChapterId) {
             // Collect skill rewards
             if (s.skillRewards && s.skillRewards.length > 0) {
@@ -318,12 +364,12 @@ ${project.learningObjectives?.map((o, i) => `${i + 1}. ${o}`).join('\n') || '无
           }
           return s;
         });
-        
+
         // Check if all subChapters are completed
-        const allSubCompleted = updatedSubChapters?.every(s => s.completed) ?? true;
-        
-        return { 
-          ...c, 
+        const allSubCompleted = updatedSubChapters?.every((s) => s.completed) ?? true;
+
+        return {
+          ...c,
           subChapters: updatedSubChapters,
           completed: allSubCompleted,
         };
@@ -339,8 +385,8 @@ ${project.learningObjectives?.map((o, i) => `${i + 1}. ${o}`).join('\n') || '无
     // Update skill dimensions if there are rewards
     if (earnedRewards.length > 0) {
       const profile = getUserProfile();
-      earnedRewards.forEach(reward => {
-        const dimension = profile.dimensions.find(d => d.name === reward.dimension);
+      earnedRewards.forEach((reward) => {
+        const dimension = profile.dimensions.find((d) => d.name === reward.dimension);
         if (dimension) {
           dimension.score = Math.min(dimension.score + reward.points, dimension.maxScore);
         } else {
@@ -354,7 +400,7 @@ ${project.learningObjectives?.map((o, i) => `${i + 1}. ${o}`).join('\n') || '无
       profile.completedChapters += 1;
       saveUserProfile(profile);
 
-      const rewardText = earnedRewards.map(r => `${r.dimension} +${r.points}`).join(', ');
+      const rewardText = earnedRewards.map((r) => `${r.dimension} +${r.points}`).join(", ");
       toast({
         title: "学习完成！获得能力积分",
         description: rewardText,
@@ -379,36 +425,19 @@ ${project.learningObjectives?.map((o, i) => `${i + 1}. ${o}`).join('\n') || '无
         {/* Header */}
         <div className="border-b border-border bg-card px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Button 
-              variant="ghost" 
-              size="icon"
-              onClick={() => navigate(`/projects/${projectId}`)}
-            >
+            <Button variant="ghost" size="icon" onClick={() => navigate(`/projects/${projectId}`)}>
               <ArrowLeft className="w-4 h-4" />
             </Button>
             <div>
-              <h1 className="font-semibold text-foreground text-sm md:text-base line-clamp-1">
-                {title}
-              </h1>
-              <p className="text-xs text-muted-foreground hidden md:block line-clamp-1">
-                {subtitle}
-              </p>
+              <h1 className="font-semibold text-foreground text-sm md:text-base line-clamp-1">{title}</h1>
+              <p className="text-xs text-muted-foreground hidden md:block line-clamp-1">{subtitle}</p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
             {subChapterId && (
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                onClick={() => setShowNotes(!showNotes)}
-                className="hidden md:flex"
-              >
-                {showNotes ? (
-                  <PanelRightClose className="w-4 h-4 mr-1" />
-                ) : (
-                  <PanelRightOpen className="w-4 h-4 mr-1" />
-                )}
+              <Button variant="ghost" size="sm" onClick={() => setShowNotes(!showNotes)} className="hidden md:flex">
+                {showNotes ? <PanelRightClose className="w-4 h-4 mr-1" /> : <PanelRightOpen className="w-4 h-4 mr-1" />}
                 <span className="hidden lg:inline">笔记</span>
               </Button>
             )}
@@ -474,7 +503,11 @@ ${project.learningObjectives?.map((o, i) => `${i + 1}. ${o}`).join('\n') || '无
           <div className="bg-destructive/10 border-b border-destructive/20 px-4 py-2 flex items-center gap-2">
             <AlertCircle className="w-4 h-4 text-destructive" />
             <span className="text-sm text-destructive">
-              请先在 <Link to="/settings" className="underline">设置页面</Link> 配置 LLM API
+              请先在{" "}
+              <Link to="/settings" className="underline">
+                设置页面
+              </Link>{" "}
+              配置 LLM API
             </span>
           </div>
         )}
@@ -482,10 +515,12 @@ ${project.learningObjectives?.map((o, i) => `${i + 1}. ${o}`).join('\n') || '无
         {/* Main Content Area - Chat + Notes */}
         <div className="flex-1 overflow-hidden flex">
           {/* Chat Interface */}
-          <div className={cn(
-            "flex-1 overflow-hidden transition-all duration-300",
-            showNotes && subChapterId ? "md:w-[60%]" : "w-full"
-          )}>
+          <div
+            className={cn(
+              "flex-1 overflow-hidden transition-all duration-300",
+              showNotes && subChapterId ? "md:w-[60%]" : "w-full",
+            )}
+          >
             <ChatInterface
               messages={messages}
               onSendMessage={handleSendMessage}
@@ -503,14 +538,9 @@ ${project.learningObjectives?.map((o, i) => `${i + 1}. ${o}`).join('\n') || '无
                   <FileText className="w-4 h-4 text-primary" />
                   <span className="font-medium text-foreground text-sm">学习笔记</span>
                 </div>
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
-                  onClick={handleSaveNotes}
-                  disabled={isSavingNotes}
-                >
+                <Button variant="ghost" size="sm" onClick={handleSaveNotes} disabled={isSavingNotes}>
                   <Save className="w-4 h-4 mr-1" />
-                  {isSavingNotes ? '保存中...' : '保存'}
+                  {isSavingNotes ? "保存中..." : "保存"}
                 </Button>
               </div>
 
@@ -561,14 +591,9 @@ ${project.learningObjectives?.map((o, i) => `${i + 1}. ${o}`).join('\n') || '无
                   className="resize-none bg-background text-foreground placeholder:text-muted-foreground min-h-[120px]"
                 />
                 <div className="flex justify-end mt-2">
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
-                    onClick={handleSaveNotes}
-                    disabled={isSavingNotes}
-                  >
+                  <Button variant="outline" size="sm" onClick={handleSaveNotes} disabled={isSavingNotes}>
                     <Save className="w-4 h-4 mr-1" />
-                    {isSavingNotes ? '保存中...' : '保存笔记'}
+                    {isSavingNotes ? "保存中..." : "保存笔记"}
                   </Button>
                 </div>
               </div>
